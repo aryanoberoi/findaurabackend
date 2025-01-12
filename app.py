@@ -6,7 +6,7 @@ from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 import time
 import logging
 import os
-from controllers.ask import get_llm_response, get_general_llm_response
+from controllers.ask import get_general_llm_response
 from controllers.database import upgrade_account, get_account_status
 import sys
 from dotenv import load_dotenv
