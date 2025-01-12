@@ -11,12 +11,7 @@ from elasticsearch.exceptions import NotFoundError
 from langchain.retrievers import EnsembleRetriever
 from elasticsearch import Elasticsearch
 from langchain_openai import OpenAIEmbeddings,ChatOpenAI
-from langchain_core.load import dumpd, dumps, load, loads
-from langchain_community.utilities import SQLDatabase
-from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
 from langchain.chains import create_sql_query_chain
-import mysql.connector
-from mysql.connector import Error
 from langchain.docstore.document import Document
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -150,24 +145,6 @@ information only.
 Context:
 {context}
 """
-
-    else:
-        prompt= """
-        {previous_question}
-        You are an intelligent and creative assistant. Your task is to generate a detailed and thoughtful response related to the provided context. You are encouraged to use inference, creativity, and reasoning to provide insightful answers. Try to make up an answer that is related to context only if you dont know the answer but keep the facts as truthful as possible.
--You will be given context and a query. Answer the question only sticking to context and do not make up facts. 
--You will be given an SQL query and its output. Answer the question based on the output.
--If there is an error in SQL query or context do not mention it in the answer.
-- Review the context carefully, making connections where possible, and avoid any information outside the given context.
-- If the question has absolutely no relation to the context, respond with "The question is out of context" and provide examples of related questions the user can ask, based on the context.
-- Begin your answer by quoting an exact line from the context in **bold** tags.
-- Use **bold** tags to highlight key points and *italic* tags for important keywords.
-- Consider all angles of the question and give a well-rounded answer, using creativity. Try to always give an answer.
-
-Context:
-{context}
-
-"""
     #model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=temperature, google_api_key=gemini_api_key)
     #temperature of 0.3 balances between creativity and answering based on context. Since it is less than 0.5, it will stick more to context but also adds a bit of creative freedom.
     #top-p : the model will onsider a broader range of possible next words, balancing relevance with some level of novelty
@@ -296,45 +273,6 @@ def translate_output(res, output_language):
     res = json.loads(requests.post('http://127.0.0.1:8000/scaler/translate', json=payload).content)
     logging.info(f'translated output: {res}')
     return res['translated_content']
-
-def get_llm_response(user_query, input_language, output_language, session_name, hascsvxl, mode):
-    # translate question to english for LLM processing if in other language
-    if input_language!=23:
-        user_query = translate_input(user_query, input_language)
-    
-    if user_query and user_query.strip():
-        # response from LLM
-        res = ''
-        try:
-            res = user_input(user_query, session_name, True, hascsvxl=hascsvxl, mode=mode)
-        except Exception as e:
-            logging.info(f'error in text generation : {e}')
-            raise
-
-        # translate to Output Language
-        if output_language != 23:
-            res = translate_output(res, output_language)
-
-        return res
-
-def get_cisce_response(user_query, input_language, output_language, session_name):
-    if input_language!=23:
-        user_query = translate_input(user_query, input_language)
-    
-    if user_query and user_query.strip():
-        # response from LLM
-        res = ''
-        try:
-            res = user_input(user_query, session_name, False)
-        except Exception as e:
-            logging.info(f'error in text generation : {e}')
-            raise
-
-        # translate to Output Language
-        if output_language != 23:
-            res = translate_output(res, output_language)
-
-        return res
 
 def get_general_llm_response(user_query, input_language, output_language):
     # if input_language!=23:
