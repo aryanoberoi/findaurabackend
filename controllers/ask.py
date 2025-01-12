@@ -5,7 +5,6 @@ import json
 import requests
 import logging
 import time
-from controllers.doc_summary import summarize_document
 from langchain_elasticsearch.retrievers import ElasticsearchRetriever
 from elasticsearch.exceptions import NotFoundError
 from langchain.retrievers import EnsembleRetriever
@@ -13,8 +12,8 @@ from elasticsearch import Elasticsearch
 from langchain_openai import OpenAIEmbeddings,ChatOpenAI
 from langchain.chains import create_sql_query_chain
 from langchain.docstore.document import Document
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 import os
 from dotenv import load_dotenv
 
