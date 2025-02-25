@@ -6,7 +6,7 @@ from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 import time
 import logging
 import os
-from controllers.ask import get_general_llm_response
+from controllers.ask import get_general_llm_response, calRoute
 from controllers.database import upgrade_account, get_account_status
 import sys
 from dotenv import load_dotenv
@@ -241,6 +241,7 @@ def healthcheck():
 def ask():
     start_time = time.time()
     data = request.get_json()
+    print("request data : ", data)
     hascsvxl = data.get('hasCsvOrXlsx')
     # Authenticate request and extract vector db directory from token
     session_name = ''
@@ -260,12 +261,21 @@ def ask():
     logging.debug('here, after token')
 
     #update queries in database in case of a free user 
-    if is_user_limit_over(session_name):
-        return jsonify({ "answer": "To ask further questions, please upgrade your account."})
+    current_loc = data['currentLocation']
+    # Parse the lat,lng from string like "Lat: XX.XX, Lng: YY.YY"
+    src_parts = current_loc.replace('Lat: ', '').replace('Lng: ', '').split(', ')
+    src_lat = float(src_parts[0])
+    src_lng = float(src_parts[1])
     
+    # Extract destination coordinates directly from destinationCoordinates object
+    dest_lat = float(data['destinationCoordinates']['lat'])
+    dest_lng = float(data['destinationCoordinates']['lng'])
     # Extract the message from the data
     try:
         user_query = data.get('message')
+        if(str(user_query).lower() == 'location'):
+            
+            return jsonify({'answer': str(calRoute(src_lat,src_lng,dest_lat,dest_lng))}), 200
         input_language = int(data.get('inputLanguage'))
         output_language = int(data.get('outputLanguage'))
         context = data.get('context')
@@ -277,11 +287,7 @@ def ask():
     # get response from llm
     try:
         logging.info(f'user query: {user_query}')
-        if context:
-            session_name = session_name + str(session_id.lower())
-            llm_response = get_llm_response(user_query, input_language, output_language, session_name, hascsvxl=hascsvxl, mode=mode)
-        else:
-            llm_response = get_general_llm_response(user_query, input_language, output_language, session_name)
+        llm_response = get_general_llm_response(user_query, input_language, output_language, str(calRoute(src_lat,src_lng,dest_lat,dest_lng)))
     except Exception as e:
         logging.info(f'Error: {e}')
         return jsonify({'message': 'Error generating response from LLM'}), 500

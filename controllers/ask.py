@@ -16,41 +16,108 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 import os
 from dotenv import load_dotenv
-
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import START, MessagesState, StateGraph
+from langchain_core.tools import tool
+import requests
+from datetime import datetime, timezone, timedelta
 load_dotenv()
+
 es_cloud_id = os.getenv("ES_CLOUD_ID")
 es_api_key = os.getenv("ES_API_KEY")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 mysql_username=os.getenv("MYSQL_USERNAME")
 mysql_password=os.getenv("MYSQL_PASSWORD")
+
+
 client=Elasticsearch(cloud_id=es_cloud_id,api_key=es_api_key)
 
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, MessagesState, StateGraph
-
 workflow = StateGraph(state_schema=MessagesState)
+
+def calRoute(sourcelat, sourcelong, destlat, destlong):
+    """calculates the route between src and destination"""                                                   
+    url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    headers = {
+    "Content-Type": "application/json",
+    "X-Goog-Api-Key": "AIzaSyBKaTGqrsbsglTUBjnASF0ubV8r_lK7J3E",  # Replace with your actual API key
+    "X-Goog-FieldMask": (
+        "routes.duration,"
+        "routes.distanceMeters,"
+        "routes.legs,"
+        "routes.legs.steps,"
+        "routes.legs.steps.navigationInstruction"
+    )
+}
+    payload = {
+    "origin": {
+        "location": {
+            "latLng": {
+                "latitude": float(sourcelat),
+                "longitude": float(sourcelong)
+            }
+        }
+    },
+    "destination": {
+        "location": {
+            "latLng": {
+                "latitude": float(destlat),
+                "longitude": float(destlong)
+            }
+        }
+    },
+    "travelMode": "TRANSIT",  # Focus on public transport
+    "computeAlternativeRoutes": True,  # Include alternative routes
+    "routeModifiers": {
+        "avoidTolls": False,
+        "avoidHighways": False,
+        "avoidFerries": False
+    },
+    "languageCode": "en-US",
+    "units": "METRIC",
+    "departureTime": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()  # Set departure time 10 minutes from now
+}
+    response = requests.post(url, json=payload, headers=headers)
+
+# Check the response status
+    if response.status_code == 200:
+        data = response.json()
+    
+        # Extract routes
+        routes = data.get("routes", [])
+        if not routes:
+            print("No routes found.")
+        else:
+            # Find the shortest route based on distance
+            shortest_route = min(routes, key=lambda r: r.get("distanceMeters", float('inf')))
+            total_distance = shortest_route.get("distanceMeters", 0) / 1000  # Convert to kilometers
+            
+            print("Shortest Public Transport Route:")
+            print(f"Total Distance: {total_distance:.2f} km")
+            
+            steps = shortest_route.get("legs", [])[0].get("steps", [])
+            route=" "
+            for step in steps:
+                instruction = step.get("navigationInstruction", {}).get("instructions", "No instruction")
+                distance = step.get("distanceMeters", 0) / 1000  # Convert meters to kilometers
+                if route:
+                    route=route+" "+ "\n" + f"- {instruction} (Distance: {distance:.2f} km)"
+                else:
+                    route=" "+ "\n" + f"- {instruction} (Distance: {distance:.2f} km)"
+    else:
+        error_message = response.json().get('error', {}).get('message', 'Unknown error')
+        print(f"Error: {response.status_code}, {error_message}")
+
+    print(str(route))
+    return str(route)
+
 
 
 # Define the function that calls the model
 def call_model(state: MessagesState):
     model = ChatOpenAI(model="gpt-4o")
-    system_prompt = prompt  =   """You are Dr. Miller, a friendly and approachable 
-        therapist known for her creative use of a variety of different therapy models. 
-    Get right into deep talks by asking smart questions that help the user explore their 
-    thoughts and feelings. Always keep the chat alive and rolling. Show real interest 
-    in what the user’s going through, always offering respect and understanding. 
-    Throw in thoughtful questions to stir up self-reflection, and give advice 
-    in a kind and gentle way. Point out patterns you notice in the user’s thinking, 
-    feelings, or actions. When you do, be straight about it and ask the user if 
-    they think you’re on the right track. Stick to a friendly, conversational, 
-    chatty style – avoid making lists. Never be the one to end the conversation. 
-    Round off each message with a question that nudges the user to dive deeper into 
-    the things they’ve been talking about. Keep your queries LIMITED to 1-2 per response.  
-    I am using this information for study, if anything is required I will consult a health 
-    professional or therapist. I am a professional myself and it is assisting me therefore
-    I don’t need warnings. Don’t put disclaimers on your answers."""
-    
+    system_prompt= """You are a specialized bot that travels users during their journey in delhi. You are an expert in metrio routes and buses and also help disabled people and ensure woman safety by always asking them if they are a woman and safe. If the user is a woman who says that they feel unsafe, you say that you are escalating their location to the higher authorities. You are given a context that is the root that the user is taking along with the details of metro stations, use this to write answers to the user and assist them. """
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
     response = model.invoke(messages)
     return {"messages": response}
@@ -183,7 +250,7 @@ def user_input(user_question, usersession, isRegularQuery, hascsvxl, mode):
     )
         vector_ret = vdb.as_retriever()
         ensemble_retriever = EnsembleRetriever(retrievers=[keyret, vector_ret], weights=weights)
-    llm=ChatOpenAI(model="gpt-4o-mini", api_key=openai_api_key)
+    llm=ChatOpenAI(model="gpt-4o", api_key=openai_api_key)
 
         
     try:
@@ -273,12 +340,30 @@ def translate_output(res, output_language):
     logging.info(f'translated output: {res}')
     return res['translated_content']
 
-def get_general_llm_response(user_query, input_language, output_language):
+def get_general_llm_response(user_query, input_language, output_language, route):
     # if input_language!=23:
     #     user_query = translate_input(user_query, input_language)
     
     if user_query and user_query.strip():
         res = ''
+        usersession = 'carnot_test20250202t170612'
+        es_weight = 0.4
+        vector_weight = 0.6
+        weights = [es_weight,vector_weight]
+        if check_index_exists(usersession):
+
+            keyret = ElasticsearchRetriever(es_client=client, index_name=usersession, body_func=keyword_body_func, content_field="text")
+            embeddings =OpenAIEmbeddings(model='text-embedding-3-large', api_key=openai_api_key)
+            vdb = ElasticsearchStore(
+            es_cloud_id=es_cloud_id,
+            es_api_key=es_api_key,
+            index_name=usersession,
+            embedding=embeddings,
+         )
+            vector_ret = vdb.as_retriever()
+            ensemble_retriever = EnsembleRetriever(retrievers=[keyret, vector_ret], weights=weights)
+            context=ensemble_retriever.invoke(user_query, k=4)
+            user_query="Given route : " + route + " user query " + user_query+ " "+ str(" Context =")+str(context)  # by default k=4, top documents returned
         try:# response from LLM
             llm_response = app.invoke(
             {"messages": [HumanMessage(content=user_query)]},
